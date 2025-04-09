@@ -1,201 +1,143 @@
-import React, { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import * as XLSX from 'xlsx';
-import { saveAs } from 'file-saver';
+import React, { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 
 const supabase = createClient(
-  process.env.REACT_APP_SUPABASE_URL,
-  process.env.REACT_APP_SUPABASE_ANON_KEY
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-function App() {
-  const [name, setName] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [existingNumber, setExistingNumber] = useState('');
-  const [statusToUpdate, setStatusToUpdate] = useState('');
-  const [notes, setNotes] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [user, setUser] = useState(null);
-  const [confirmation, setConfirmation] = useState(null);
+export default function BirthCertApp() {
+  const [name, setName] = useState("");
+  const [notes, setNotes] = useState("");
+  const [checkId, setCheckId] = useState("");
+  const [statusNote, setStatusNote] = useState("");
+  const [dataRow, setDataRow] = useState(null);
+  const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
-    };
-    checkSession();
-  }, []);
-
-  const handleLogin = async () => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) {
-      alert('Login failed. Please check your credentials.');
-    } else {
-      setUser(data.user);
+  const generateUniqueId = async () => {
+    let id;
+    let exists = true;
+    while (exists) {
+      id = Math.floor(1000 + Math.random() * 9000);
+      const { data } = await supabase
+        .from("birth_cert_requests")
+        .select("id")
+        .eq("id", id);
+      if (!data || data.length === 0) exists = false;
     }
+    return id;
   };
 
   const handleSubmit = async () => {
-    if (!name.trim()) return;
-    setSubmitting(true);
-    setConfirmation(null);
+    if (!name) return setMessage("Please enter a name");
 
-    let nextNumber = null;
-    let attempts = 0;
-    const maxAttempts = 10;
+    const id = await generateUniqueId();
 
-    while (attempts < maxAttempts) {
-      const randomNum = Math.floor(1000 + Math.random() * 9000);
-      const { data, error } = await supabase
-        .from('birth_cert_requests')
-        .select('number')
-        .eq('number', randomNum)
-        .maybeSingle();
+    const { data, error } = await supabase.from("birth_cert_requests").insert([
+      {
+        id,
+        status: "in progress..",
+        notes: notes || null,
+      },
+    ]);
 
-      if (!data) {
-        nextNumber = randomNum;
-        break;
-      }
-      attempts++;
-    }
+    if (error) return setMessage("Error: " + error.message);
 
-    if (!nextNumber) {
-      alert("Could not generate a unique request number. Please try again.");
-      setSubmitting(false);
-      return;
-    }
-
-    const { error: insertError } = await supabase
-      .from('birth_cert_requests')
-      .insert([{ number: nextNumber, status: 'in progress' }]);
-
-    if (insertError) {
-      console.error('Insert error:', insertError);
-      alert('Failed to submit request.');
-      setSubmitting(false);
-      return;
-    }
-
-    const timestamp = new Date().toLocaleString();
-    setConfirmation({ name, number: nextNumber });
-
-    const rowData = [{
-      name,
-      number: nextNumber,
-      status: 'in progress',
-      date: timestamp
-    }];
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rowData);
-    XLSX.utils.book_append_sheet(wb, ws, 'Requests');
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'data.xlsx');
-
-    setSubmitting(false);
-    setName('');
+    setDataRow({ id, status: "in progress..", notes, name });
+    setMessage("Entry added successfully");
   };
 
-  const handleUpdateStatus = async () => {
-    const number = parseInt(existingNumber);
-    if (!number || !statusToUpdate) return;
+  const handleStatusUpdate = async () => {
+    const idNum = parseInt(checkId);
+    if (isNaN(idNum)) return setMessage("Invalid ID format");
 
-    const { data, error: fetchError } = await supabase
-      .from('birth_cert_requests')
-      .select('id')
-      .eq('number', number)
-      .single();
+    const { data, error } = await supabase
+      .from("birth_cert_requests")
+      .select("*")
+      .eq("id", idNum);
 
-    if (fetchError || !data) {
-      alert('Number not found.');
-      return;
+    if (error || !data || data.length === 0)
+      return setMessage("ID not found");
+
+    const row = data[0];
+
+    if (row.status !== "in progress..") {
+      return setMessage(
+        `Warning: ID ${idNum} already has status '${row.status}' and cannot be changed.`
+      );
+    }
+
+    const newStatus = prompt(
+      "Enter new status: request dismissed, approved, or extra docs required"
+    );
+
+    if (
+      !["request dismissed", "approved", "extra docs required"].includes(
+        newStatus
+      )
+    ) {
+      return setMessage("Invalid status entered");
     }
 
     const { error: updateError } = await supabase
-      .from('birth_cert_requests')
-      .update({ status: statusToUpdate, notes })
-      .eq('number', number);
+      .from("birth_cert_requests")
+      .update({ status: newStatus, notes: statusNote || null })
+      .eq("id", idNum);
 
-    if (updateError) {
-      console.error('Update error:', updateError);
-      alert('Failed to update status.');
-    } else {
-      alert('Status updated successfully.');
-      setExistingNumber('');
-      setStatusToUpdate('');
-      setNotes('');
-    }
+    if (updateError) return setMessage("Update error: " + updateError.message);
+
+    setMessage(`Status for ID ${idNum} updated successfully.`);
   };
 
-  if (!user) {
-    return (
-      <div style={{ padding: 30 }}>
-        <h2>Login</h2>
-        <input
-          placeholder='Email'
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        /><br />
-        <input
-          type='password'
-          placeholder='Password'
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        /><br />
-        <button onClick={handleLogin}>Login</button>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ padding: 30 }}>
-      <h2>Birth Certificate Request</h2>
-      <input
-        placeholder='Enter full name'
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      /><br />
-      <button onClick={handleSubmit} disabled={submitting}>
-        {submitting ? 'Submitting...' : 'Submit Request'}
-      </button>
+    <div className="p-6 max-w-2xl mx-auto space-y-4">
+      <Card>
+        <CardContent className="space-y-2 p-4">
+          <Input
+            placeholder="Enter full name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <Input
+            placeholder="Optional notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+          <Button onClick={handleSubmit}>Submit</Button>
+        </CardContent>
+      </Card>
 
-      {confirmation && (
-        <div style={{ marginTop: 20, padding: 10, background: '#f4f4f4' }}>
-          <h4>Your request was submitted successfully.</h4>
-          <p><strong>Name:</strong> {confirmation.name}</p>
-          <p><strong>Request #:</strong> {confirmation.number}</p>
-        </div>
+      {dataRow && (
+        <Card>
+          <CardContent className="p-4">
+            <p><strong>Name:</strong> {dataRow.name}</p>
+            <p><strong>ID:</strong> {dataRow.id}</p>
+            <p><strong>Status:</strong> {dataRow.status}</p>
+            <p><strong>Notes:</strong> {dataRow.notes}</p>
+          </CardContent>
+        </Card>
       )}
 
-      <hr />
+      <Card>
+        <CardContent className="space-y-2 p-4">
+          <Input
+            placeholder="Enter ID to update"
+            value={checkId}
+            onChange={(e) => setCheckId(e.target.value)}
+          />
+          <Input
+            placeholder="Update notes"
+            value={statusNote}
+            onChange={(e) => setStatusNote(e.target.value)}
+          />
+          <Button onClick={handleStatusUpdate}>Update Status</Button>
+        </CardContent>
+      </Card>
 
-      <h2>Update Request Status</h2>
-      <input
-        placeholder='Enter request number'
-        value={existingNumber}
-        onChange={(e) => setExistingNumber(e.target.value)}
-      /><br />
-      <select
-        value={statusToUpdate}
-        onChange={(e) => setStatusToUpdate(e.target.value)}
-      >
-        <option value=''>Select status</option>
-        <option value='transaction arrived'>Transaction Arrived</option>
-        <option value='not arrived'>Not Arrived</option>
-        <option value='documents required'>Documents Required</option>
-      </select><br />
-      <textarea
-        placeholder='Optional notes'
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-      /><br />
-      <button onClick={handleUpdateStatus}>Update Status</button>
+      {message && <p className="text-center text-red-600">{message}</p>}
     </div>
   );
 }
-
-export default App;
