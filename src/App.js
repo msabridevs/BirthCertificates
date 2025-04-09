@@ -42,27 +42,38 @@ const handleSubmit = async () => {
   if (!name.trim()) return;
   setSubmitting(true);
 
-  // 1. Get the highest number used so far
-  const { data: existingRows, error: fetchError } = await supabase
-    .from('birth_cert_requests')
-    .select('number')
-    .order('number', { ascending: false })
-    .limit(1);
+  let nextNumber = null;
+  let attempts = 0;
+  const maxAttempts = 10;
 
-  if (fetchError) {
-    console.error('Failed to get latest number:', fetchError);
-    alert('Error generating request number.');
+  // Try to generate a unique random number
+  while (attempts < maxAttempts) {
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+
+    const { data, error } = await supabase
+      .from('birth_cert_requests')
+      .select('number')
+      .eq('number', randomNum)
+      .maybeSingle();
+
+    if (!data) {
+      nextNumber = randomNum;
+      break;
+    }
+
+    attempts++;
+  }
+
+  if (!nextNumber) {
+    alert("Could not generate a unique request number. Please try again.");
     setSubmitting(false);
     return;
   }
 
-  const lastUsed = existingRows.length > 0 ? existingRows[0].number : 999;
-  const nextNumber = lastUsed + 1;
-
-  // 2. Insert new row
-  const { error: insertError } = await supabase.from('birth_cert_requests').insert([
-    { number: nextNumber, status: 'in progress' }
-  ]);
+  // Insert into Supabase
+  const { error: insertError } = await supabase
+    .from('birth_cert_requests')
+    .insert([{ number: nextNumber, status: 'in progress' }]);
 
   if (insertError) {
     console.error('Insert error:', insertError);
@@ -71,7 +82,7 @@ const handleSubmit = async () => {
     return;
   }
 
-  // 3. Generate the PDF
+  // Generate the PDF
   const timestamp = new Date().toLocaleString();
   const doc = new jsPDF();
   doc.setFontSize(14);
