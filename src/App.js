@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 
 const supabase = createClient(
   process.env.REACT_APP_SUPABASE_URL,
@@ -15,6 +17,7 @@ function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [user, setUser] = useState(null);
+  const [confirmation, setConfirmation] = useState(null);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -39,12 +42,12 @@ function App() {
   const handleSubmit = async () => {
     if (!name.trim()) return;
     setSubmitting(true);
+    setConfirmation(null);
 
     let nextNumber = null;
     let attempts = 0;
     const maxAttempts = 10;
 
-    // Generate unique random number
     while (attempts < maxAttempts) {
       const randomNum = Math.floor(1000 + Math.random() * 9000);
       const { data, error } = await supabase
@@ -66,7 +69,6 @@ function App() {
       return;
     }
 
-    // Insert the number and status
     const { error: insertError } = await supabase
       .from('birth_cert_requests')
       .insert([{ number: nextNumber, status: 'in progress' }]);
@@ -78,23 +80,21 @@ function App() {
       return;
     }
 
-    // Create and download .txt file
     const timestamp = new Date().toLocaleString();
-    const content =
-      `Consulate General of Egypt – Frankfurt\n` +
-      `-------------------------------------------\n` +
-      `Name: ${name}\n` +
-      `Request #: ${nextNumber}\n` +
-      `Date: ${timestamp}\n` +
-      `Transaction: Birth Certificates\n` +
-      `\nPlease keep this number for tracking.\n`;
+    setConfirmation({ name, number: nextNumber });
 
-    const safeFileName = name.replace(/[\\\\/:*?"<>|]/g, '').trim();
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${safeFileName}.txt`;
-    link.click();
+    const rowData = [{
+      name,
+      number: nextNumber,
+      status: 'in progress',
+      date: timestamp
+    }];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rowData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Requests');
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), 'data.xlsx');
 
     setSubmitting(false);
     setName('');
@@ -162,6 +162,14 @@ function App() {
       <button onClick={handleSubmit} disabled={submitting}>
         {submitting ? 'Submitting...' : 'Submit Request'}
       </button>
+
+      {confirmation && (
+        <div style={{ marginTop: 20, padding: 10, background: '#f4f4f4' }}>
+          <h4>Your request was submitted successfully.</h4>
+          <p><strong>Name:</strong> {confirmation.name}</p>
+          <p><strong>Request #:</strong> {confirmation.number}</p>
+        </div>
+      )}
 
       <hr />
 
