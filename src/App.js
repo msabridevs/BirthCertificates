@@ -38,65 +38,57 @@ function App() {
   };
 
   // ✅ This is the unique number generator + insert + PDF
-  const handleSubmit = async () => {
-    if (!name.trim()) return;
-    setSubmitting(true);
+const handleSubmit = async () => {
+  if (!name.trim()) return;
+  setSubmitting(true);
 
-    const maxAttempts = 10;
-    let uniqueNumber = null;
-    let attempt = 0;
+  // 1. Get the highest number used so far
+  const { data: existingRows, error: fetchError } = await supabase
+    .from('birth_cert_requests')
+    .select('number')
+    .order('number', { ascending: false })
+    .limit(1);
 
-    while (attempt < maxAttempts) {
-      const candidate = Math.floor(1000 + Math.random() * 9000);
-
-      const { data, error: checkError } = await supabase
-        .from('birth_cert_requests')
-        .select('number')
-        .eq('number', candidate)
-        .maybeSingle();
-
-      if (!data) {
-        uniqueNumber = candidate;
-        break;
-      }
-
-      attempt++;
-    }
-
-    if (!uniqueNumber) {
-      alert("Could not generate a unique number. Try again.");
-      setSubmitting(false);
-      return;
-    }
-
-    const { error: insertError } = await supabase.from('birth_cert_requests').insert([
-      { number: uniqueNumber, status: 'in progress' }
-    ]);
-
-    if (insertError) {
-      console.error('Insert error:', insertError);
-      alert('Failed to submit request.');
-      setSubmitting(false);
-      return;
-    }
-
-    const timestamp = new Date().toLocaleString();
-    const doc = new jsPDF();
-    doc.setFontSize(14);
-    doc.text('Consulate General of Egypt – Frankfurt', 20, 20);
-    doc.text('-------------------------------------------', 20, 28);
-    doc.text(`Name: ${name}`, 20, 40);
-    doc.text(`Request #: ${uniqueNumber}`, 20, 50);
-    doc.text(`Date: ${timestamp}`, 20, 60);
-    doc.text(`Transaction: Birth Certificates`, 20, 70);
-    doc.text('\nPlease keep this number for tracking.', 20, 90);
-
-    const safeFileName = name.replace(/[\\\\/:*?"<>|]/g, '').trim();
-    doc.save(`${safeFileName}.pdf`);
-
+  if (fetchError) {
+    console.error('Failed to get latest number:', fetchError);
+    alert('Error generating request number.');
     setSubmitting(false);
-    setName('');
-  };
+    return;
+  }
+
+  const lastUsed = existingRows.length > 0 ? existingRows[0].number : 999;
+  const nextNumber = lastUsed + 1;
+
+  // 2. Insert new row
+  const { error: insertError } = await supabase.from('birth_cert_requests').insert([
+    { number: nextNumber, status: 'in progress' }
+  ]);
+
+  if (insertError) {
+    console.error('Insert error:', insertError);
+    alert('Failed to submit request.');
+    setSubmitting(false);
+    return;
+  }
+
+  // 3. Generate the PDF
+  const timestamp = new Date().toLocaleString();
+  const doc = new jsPDF();
+  doc.setFontSize(14);
+  doc.text('Consulate General of Egypt – Frankfurt', 20, 20);
+  doc.text('-------------------------------------------', 20, 28);
+  doc.text(`Name: ${name}`, 20, 40);
+  doc.text(`Request #: ${nextNumber}`, 20, 50);
+  doc.text(`Date: ${timestamp}`, 20, 60);
+  doc.text(`Transaction: Birth Certificates`, 20, 70);
+  doc.text('\nPlease keep this number for tracking.', 20, 90);
+
+  const safeFileName = name.replace(/[\\\\/:*?"<>|]/g, '').trim();
+  doc.save(`${safeFileName}.pdf`);
+
+  setSubmitting(false);
+  setName('');
+};
 
   const handleUpdateStatus = async () => {
     const number = parseInt(existingNumber);
