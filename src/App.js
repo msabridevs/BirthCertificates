@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import jsPDF from 'jspdf';
 
 const supabase = createClient(
-  process.env.https://esbgozuigjdavcxiaxon.supabase.co,
-  process.env.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVzYmdvenVpZ2pkYXZjeGlheG9uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQyMjU4NzUsImV4cCI6MjA1OTgwMTg3NX0.OiOH_0ZcTUPu6oMGILsq5oqm1FdCDBvzcHozs-4DNY0
+  process.env.REACT_APP_SUPABASE_URL,
+  process.env.REACT_APP_SUPABASE_ANON_KEY
 );
 
 function App() {
@@ -18,9 +18,11 @@ function App() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user || null);
-    });
+    };
+    checkSession();
   }, []);
 
   const handleLogin = async () => {
@@ -29,7 +31,7 @@ function App() {
       password,
     });
     if (error) {
-      alert('Login failed');
+      alert('Login failed. Please check your credentials.');
     } else {
       setUser(data.user);
     }
@@ -47,15 +49,16 @@ function App() {
     ]);
 
     if (error) {
-      console.error('Supabase insert error:', error);
+      console.error('Insert error:', error);
+      alert('Failed to submit request.');
       setSubmitting(false);
       return;
     }
 
     const doc = new jsPDF();
     doc.setFontSize(14);
-    doc.text('Embassy of Egypt – Frankfurt', 20, 20);
-    doc.text('-------------------------------', 20, 28);
+    doc.text('Consulate General of Egypt – Frankfurt', 20, 20);
+    doc.text('-------------------------------------------', 20, 28);
     doc.text(`Name: ${name}`, 20, 40);
     doc.text(`Request #: ${uniqueNumber}`, 20, 50);
     doc.text(`Date: ${timestamp}`, 20, 60);
@@ -64,6 +67,7 @@ function App() {
 
     const safeFileName = name.replace(/[\\\\/:*?"<>|]/g, '').trim();
     doc.save(`${safeFileName}.pdf`);
+
     setSubmitting(false);
     setName('');
   };
@@ -79,7 +83,7 @@ function App() {
       .single();
 
     if (fetchError || !data) {
-      alert('Number not found in database.');
+      alert('Number not found.');
       return;
     }
 
@@ -89,7 +93,7 @@ function App() {
       .eq('number', number);
 
     if (updateError) {
-      console.error('Error updating status:', updateError);
+      console.error('Update error:', updateError);
       alert('Failed to update status.');
     } else {
       alert('Status updated successfully.');
