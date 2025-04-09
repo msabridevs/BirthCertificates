@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import jsPDF from 'jspdf';
 
 const supabase = createClient(
   process.env.REACT_APP_SUPABASE_URL,
@@ -37,69 +36,69 @@ function App() {
     }
   };
 
-  // ✅ This is the unique number generator + insert + PDF
-const handleSubmit = async () => {
-  if (!name.trim()) return;
-  setSubmitting(true);
+  const handleSubmit = async () => {
+    if (!name.trim()) return;
+    setSubmitting(true);
 
-  let nextNumber = null;
-  let attempts = 0;
-  const maxAttempts = 10;
+    let nextNumber = null;
+    let attempts = 0;
+    const maxAttempts = 10;
 
-  // Try to generate a unique random number
-  while (attempts < maxAttempts) {
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    // Generate unique random number
+    while (attempts < maxAttempts) {
+      const randomNum = Math.floor(1000 + Math.random() * 9000);
+      const { data, error } = await supabase
+        .from('birth_cert_requests')
+        .select('number')
+        .eq('number', randomNum)
+        .maybeSingle();
 
-    const { data, error } = await supabase
-      .from('birth_cert_requests')
-      .select('number')
-      .eq('number', randomNum)
-      .maybeSingle();
-
-    if (!data) {
-      nextNumber = randomNum;
-      break;
+      if (!data) {
+        nextNumber = randomNum;
+        break;
+      }
+      attempts++;
     }
 
-    attempts++;
-  }
+    if (!nextNumber) {
+      alert("Could not generate a unique request number. Please try again.");
+      setSubmitting(false);
+      return;
+    }
 
-  if (!nextNumber) {
-    alert("Could not generate a unique request number. Please try again.");
+    // Insert the number and status
+    const { error: insertError } = await supabase
+      .from('birth_cert_requests')
+      .insert([{ number: nextNumber, status: 'in progress' }]);
+
+    if (insertError) {
+      console.error('Insert error:', insertError);
+      alert('Failed to submit request.');
+      setSubmitting(false);
+      return;
+    }
+
+    // Create and download .txt file
+    const timestamp = new Date().toLocaleString();
+    const content =
+      `Consulate General of Egypt – Frankfurt\n` +
+      `-------------------------------------------\n` +
+      `Name: ${name}\n` +
+      `Request #: ${nextNumber}\n` +
+      `Date: ${timestamp}\n` +
+      `Transaction: Birth Certificates\n` +
+      `\nPlease keep this number for tracking.\n`;
+
+    const safeFileName = name.replace(/[\\\\/:*?"<>|]/g, '').trim();
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${safeFileName}.txt`;
+    link.click();
+
     setSubmitting(false);
-    return;
-  }
-
-  // Insert into Supabase
-  const { error: insertError } = await supabase
-    .from('birth_cert_requests')
-    .insert([{ number: nextNumber, status: 'in progress' }]);
-
-  if (insertError) {
-    console.error('Insert error:', insertError);
-    alert('Failed to submit request.');
-    setSubmitting(false);
-    return;
-  }
-
-  // Generate the PDF
-  const timestamp = new Date().toLocaleString();
-  const doc = new jsPDF();
-  doc.setFontSize(14);
-  doc.text('Consulate General of Egypt – Frankfurt', 20, 20);
-  doc.text('-------------------------------------------', 20, 28);
-  doc.text(`Name: ${name}`, 20, 40);
-  doc.text(`Request #: ${nextNumber}`, 20, 50);
-  doc.text(`Date: ${timestamp}`, 20, 60);
-  doc.text(`Transaction: Birth Certificates`, 20, 70);
-  doc.text('\nPlease keep this number for tracking.', 20, 90);
-
-  const safeFileName = name.replace(/[\\\\/:*?"<>|]/g, '').trim();
-  doc.save(`${safeFileName}.pdf`);
-
-  setSubmitting(false);
-  setName('');
-};
+    setName('');
+  };
 
   const handleUpdateStatus = async () => {
     const number = parseInt(existingNumber);
